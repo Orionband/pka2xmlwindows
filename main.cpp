@@ -10,7 +10,7 @@
 #include <windows.h>
 #endif
 
-#include "pka2xml.hpp"
+#include "pkatool.hpp"
 
 // ----------------------------------------------------------------
 // Windows crash handler — catches access violations etc. that
@@ -99,6 +99,10 @@ options:
   -d <in> <out>   decrypt pka/pkt to xml
   -e <in> <out>   encrypt xml to pka/pkt
   -f <in> <out>   patch file to be opened by any PT version
+  -p <in> <out>   remove password from activity file
+  -u <in> <out>   unlock all locked features in activity file
+  -r <in> <out>   reset activity (restore initial network, reset timer)
+  -x <in> <base>  extract networks (creates <base>_current.pkt, etc)
   -nets <in>      decrypt packet tracer "nets" file
   -logs <in>      decrypt packet tracer log file
   --forge <out>   forge authentication file
@@ -107,9 +111,10 @@ examples:
   pkatool -d foobar.pka foobar.xml
   pkatool -e foobar.xml foobar.pka
   pkatool -f old.pka fixed.pka
-  pkatool -nets %APPDATA%\packettracer\nets
-  pkatool -logs %APPDATA%\packettracer\somelog.log
-  pkatool --forge %APPDATA%\packettracer\nets
+  pkatool -p locked.pka unlocked.pka
+  pkatool -u restricted.pka unrestricted.pka
+  pkatool -r expired.pka reset.pka
+  pkatool -x activity.pka networks
 )");
     std::exit(0);
 }
@@ -136,14 +141,14 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
 
             std::string xml;
-            if (pka2xml::is_old_pt(input)) {
+            if (pkatool::is_old_pt(input)) {
                 std::fprintf(stderr, "[info] detected OLD format (pre-PT5)\n");
                 std::fflush(stderr);
-                xml = pka2xml::decrypt_old(input);
+                xml = pkatool::decrypt_old(input);
             } else {
                 std::fprintf(stderr, "[info] detected NEW format (Twofish-EAX)\n");
                 std::fflush(stderr);
-                xml = pka2xml::decrypt_pka(input);
+                xml = pkatool::decrypt_pka(input);
             }
 
             std::fprintf(stderr, "[info] decryption succeeded, xml size = %llu\n",
@@ -159,7 +164,7 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
 
             std::string input = read_binary_file(argv[2]);
-            std::string output = pka2xml::encrypt_pka(input);
+            std::string output = pkatool::encrypt_pka(input);
 
             std::fprintf(stderr, "[info] encryption succeeded, size = %llu\n",
                          (unsigned long long)output.size());
@@ -174,9 +179,54 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
 
             std::string input = read_binary_file(argv[2]);
-            std::string output = pka2xml::fix(input);
+            std::string output = pkatool::fix(input);
 
             write_binary_file(argv[3], output);
+            std::fprintf(stderr, "[done]\n");
+        }
+        // --- remove password ---
+        else if (action == "-p" && argc >= 4) {
+            std::fprintf(stderr, "[info] remove password: %s -> %s\n", argv[2], argv[3]);
+            std::fflush(stderr);
+
+            std::string input = read_binary_file(argv[2]);
+            std::string output = pkatool::remove_password_from_file(input);
+
+            write_binary_file(argv[3], output);
+            std::fprintf(stderr, "[done]\n");
+        }
+        // --- unlock ---
+        else if (action == "-u" && argc >= 4) {
+            std::fprintf(stderr, "[info] unlock: %s -> %s\n", argv[2], argv[3]);
+            std::fflush(stderr);
+
+            std::string input = read_binary_file(argv[2]);
+            std::string output = pkatool::unlock_file(input);
+
+            write_binary_file(argv[3], output);
+            std::fprintf(stderr, "[done]\n");
+        }
+        // --- reset activity ---
+        else if (action == "-r" && argc >= 4) {
+            std::fprintf(stderr, "[info] reset: %s -> %s\n", argv[2], argv[3]);
+            std::fflush(stderr);
+
+            std::string input = read_binary_file(argv[2]);
+            std::string output = pkatool::reset_file(input);
+
+            write_binary_file(argv[3], output);
+            std::fprintf(stderr, "[done]\n");
+        }
+		// --- extract networks ---
+        else if (action == "-x" && argc >= 4) {
+            std::fprintf(stderr, "[info] extract networks: %s -> %s_*.pkt\n", argv[2], argv[3]);
+            std::fflush(stderr);
+
+            std::string input = read_binary_file(argv[2]);
+            
+            // Call the extraction function
+            pkatool::extract_and_save_networks(input, argv[3]);
+            
             std::fprintf(stderr, "[done]\n");
         }
         // --- decrypt logs ---
@@ -192,11 +242,10 @@ int main(int argc, char *argv[]) {
             std::string line;
             int count = 0;
             while (std::getline(f, line)) {
-                // Strip \r that Windows text-mode might leave
                 if (!line.empty() && line.back() == '\r')
                     line.pop_back();
                 if (!line.empty()) {
-                    std::cout << pka2xml::decrypt_logs(line) << std::endl;
+                    std::cout << pkatool::decrypt_logs(line) << std::endl;
                     count++;
                 }
             }
@@ -209,7 +258,7 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
 
             std::string input = read_binary_file(argv[2]);
-            std::string output = pka2xml::decrypt_nets(input);
+            std::string output = pkatool::decrypt_nets(input);
             std::cout << output << std::endl;
             std::fprintf(stderr, "[done]\n");
         }
@@ -219,7 +268,7 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
 
             std::string output =
-                pka2xml::encrypt_nets("foobar~foobar~foobar~foobar~1700000000");
+                pkatool::encrypt_nets("foobar~foobar~foobar~foobar~1700000000");
             write_binary_file(argv[2], output);
             std::fprintf(stderr, "[done]\n");
         }
@@ -228,7 +277,6 @@ int main(int argc, char *argv[]) {
         }
     }
     catch (const CryptoPP::Exception &e) {
-        // CryptoPP-specific (auth failure, bad ciphertext, etc.)
         std::fprintf(stderr,
             "\n[cryptopp error] %s\n"
             "This usually means the file uses a different encryption\n"
@@ -252,8 +300,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     catch (...) {
-        // This catches ANYTHING else — including exceptions thrown
-        // across DLL boundaries that don't match std::exception
         std::fprintf(stderr, "\n[error] unknown/uncaught exception\n");
         std::fflush(stderr);
         return 1;

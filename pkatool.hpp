@@ -696,4 +696,201 @@ inline std::string reset_file(const std::string& input) {
     
     return encrypt_pka(xml);
 }
+// ================================================================
+// Release activity - clear recent files, lock features, reset
+// ================================================================
+inline std::string lock_features(const std::string& xml) {
+    if (xml.empty()) return xml;
+    
+    std::fprintf(stderr, "[info] locking features in XML (%zu bytes)\n", xml.size());
+    std::fflush(stderr);
+    
+    std::string result = xml;
+    
+    // List of features to lock (change on="no" to on="yes")
+    const char* features_to_lock[] = {
+        "Switching to Logical",
+        "Switching to Physical",
+        "Switching to Realtime",
+        "Switching to Simulation",
+        "Hide Event List on Start",
+        "Hide Network Component Box in Wiring Closets",
+        "Hide User Created Packet Window",
+        "Note Tool",
+        "Delete Tool",
+        "Inspection Tool",
+        "Drawing Tool",
+        "Resize Tool",
+        "Edit Environment",
+        "Hide Wireless/Cellular Connection",
+        "Toggling Animation",
+        "Toggling Auto Dock Popup Window",
+        "Toggling Sound",
+        "Toggling Telephony Sound",
+        "Toggling Show Port Information",
+        "Enable Cable Length",
+        "View Assessment Items",
+        "View Connectivity Tests",
+        "Edit Instructions",
+        "Check Results",
+        "Reset Activity",
+        "Multi-user",
+        "Create Devices",
+        "Remove Devices",
+        "Move Devices",
+        "Change Interface",
+        "Remove Interface",
+        "Connect Links",
+        "Disconnect Links",
+        "Manage All Cables in Wiring Closet",
+        "Create Cluster",
+        "Remove Cluster",
+        "Enter Cluster",
+        "Move Cluster",
+        "Create Physical Level",
+        "Remove Physical Level",
+        "Change Physical Level",
+        "Global Tooltip",
+        "Change Label",
+        "Move Label",
+        "Remove Notes/Annotations",
+        "Auto Connect",
+        "Change Display Names",
+        "Change Wireless Coverage Range",
+        "Change Bluetooth Transmit Range",
+        "Use Thing Editor Tab",
+        "Use I/O Devices Tab",
+        "Use Attributes Tab"
+    };
+    
+    int lock_count = 0;
+    
+    // For each feature, use a simpler approach: just replace the on= attribute value
+    for (const char* feature : features_to_lock) {
+        // Build pattern: <NODE on="no">\n     <ID>feature</ID>
+        // We need to handle various whitespace between tags
+        
+        std::string id_tag = std::string("<ID>") + feature + "</ID>";
+        size_t pos = 0;
+        
+        while ((pos = result.find(id_tag, pos)) != std::string::npos) {
+            // Look backwards to find <NODE on="no">
+            // Search up to 100 chars back
+            size_t search_start = (pos > 100) ? (pos - 100) : 0;
+            
+            // Find the last occurrence of <NODE between search_start and pos
+            size_t last_node = std::string::npos;
+            size_t temp_pos = search_start;
+            while ((temp_pos = result.find("<NODE ", temp_pos)) != std::string::npos && temp_pos < pos) {
+                last_node = temp_pos;
+                temp_pos++;
+            }
+            
+            if (last_node == std::string::npos) {
+                pos++;
+                continue;
+            }
+            
+            // Find the > that closes this NODE tag
+            size_t close_bracket = result.find(">", last_node);
+            if (close_bracket == std::string::npos || close_bracket >= pos) {
+                pos++;
+                continue;
+            }
+            
+            // Check if this NODE has on="no"
+            std::string node_tag = result.substr(last_node, close_bracket - last_node + 1);
+            if (node_tag.find("on=\"no\"") != std::string::npos) {
+                // Simply replace on="no" with on="yes" in place
+                size_t on_pos = result.find("on=\"no\"", last_node);
+                if (on_pos != std::string::npos && on_pos < close_bracket) {
+                    result.replace(on_pos + 4, 2, "yes");  // Replace "no" with "yes"
+                    lock_count++;
+                    std::fprintf(stderr, "[info] locked: %s\n", feature);
+                    std::fflush(stderr);
+                }
+            }
+            
+            pos++;
+        }
+    }
+    
+    std::fprintf(stderr, "[info] locked %d features\n", lock_count);
+    std::fflush(stderr);
+    
+    return result;
+}
+inline std::string clear_recent_files(const std::string& xml) {
+    if (xml.empty()) return xml;
+    
+    std::fprintf(stderr, "[info] clearing recent files from XML (%zu bytes)\n", xml.size());
+    std::fflush(stderr);
+    
+    std::string result = xml;
+    
+    // Find and clear all <RECENT_FILES>...</RECENT_FILES> sections
+    size_t pos = 0;
+    int count = 0;
+    
+    while ((pos = result.find("<RECENT_FILES>", pos)) != std::string::npos) {
+        size_t end = result.find("</RECENT_FILES>", pos);
+        if (end == std::string::npos) {
+            std::fprintf(stderr, "[warn] unclosed RECENT_FILES tag at position %zu\n", pos);
+            break;
+        }
+        
+        end += 15; // length of "</RECENT_FILES>"
+        
+        // Replace the entire section with empty tags
+        result.replace(pos, end - pos, "<RECENT_FILES></RECENT_FILES>");
+        count++;
+        
+        pos += 29; // length of "<RECENT_FILES></RECENT_FILES>"
+    }
+    
+    std::fprintf(stderr, "[info] cleared %d RECENT_FILES section(s)\n", count);
+    std::fflush(stderr);
+    
+    return result;
+}
+
+inline std::string release_activity(const std::string& xml) {
+    if (xml.empty()) return xml;
+    
+    std::fprintf(stderr, "[info] releasing activity (clear recent, lock, reset)\n");
+    std::fflush(stderr);
+    
+    std::string result = xml;
+    
+    // Step 1: Clear recent files
+    result = clear_recent_files(result);
+    
+    // Step 2: Lock features
+    result = lock_features(result);
+    
+    // Step 3: Reset activity (same as reset command)
+    result = reset_activity(result);
+    
+    std::fprintf(stderr, "[info] release complete\n");
+    std::fflush(stderr);
+    
+    return result;
+}
+
+inline std::string release_file(const std::string& input) {
+    std::fprintf(stderr, "[info] decrypting for release...\n");
+    std::fflush(stderr);
+    
+    std::string xml = is_old_pt(input) ? decrypt_old(input) : decrypt_pka(input);
+    
+    std::fprintf(stderr, "[info] decrypted, size = %zu\n", xml.size());
+    std::fflush(stderr);
+    
+    xml = release_activity(xml);
+    
+    std::fprintf(stderr, "[info] re-encrypting...\n");
+    std::fflush(stderr);
+    
+    return encrypt_pka(xml);
+}
 }  // namespace pkatool

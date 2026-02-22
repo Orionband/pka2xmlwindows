@@ -102,6 +102,7 @@ options:
   -p <in> <out>   remove password from activity file
   -u <in> <out>   unlock all locked features in activity file
   -r <in> <out>   reset activity (restore initial network, reset timer)
+  -l <in> <out>   release activity (clear recent, lock, reset)
   -x <in> <base>  extract networks (creates <base>_current.pkt, etc)
   -nets <in>      decrypt packet tracer "nets" file
   -logs <in>      decrypt packet tracer log file
@@ -111,9 +112,10 @@ examples:
   pkatool -d foobar.pka foobar.xml
   pkatool -e foobar.xml foobar.pka
   pkatool -f old.pka fixed.pka
-  pkatool -p locked.pka unlocked.pka
+  pkatool -p pwlocked.pka pwunlocked.pka
   pkatool -u restricted.pka unrestricted.pka
   pkatool -r expired.pka reset.pka
+  pkatool -l draft.pka release.pka
   pkatool -x activity.pka networks
 )");
     std::exit(0);
@@ -215,6 +217,25 @@ int main(int argc, char *argv[]) {
             std::string output = pkatool::reset_file(input);
 
             write_binary_file(argv[3], output);
+            std::fprintf(stderr, "[done]\n");
+        }
+		else if (action == "-l" && argc >= 4) {
+            std::fprintf(stderr, "[info] release: %s -> %s\n", argv[2], argv[3]);
+            std::fflush(stderr);
+
+            std::string input = read_binary_file(argv[2]);
+            std::string output = pkatool::release_file(input);
+
+            write_binary_file(argv[3], output);
+            
+            std::fprintf(stderr, "\n");
+            std::fprintf(stderr, "========================================\n");
+            std::fprintf(stderr, "IMPORTANT: Create a password to protect\n");
+            std::fprintf(stderr, "the activity using Activity Wizard!\n");
+            std::fprintf(stderr, "========================================\n");
+            std::fprintf(stderr, "\n");
+            std::fflush(stderr);
+            
             std::fprintf(stderr, "[done]\n");
         }
 		// --- extract networks ---
